@@ -5,7 +5,6 @@ from gremlin_python.structure.graph import Graph
 from gremlin_python.driver.driver_remote_connection import DriverRemoteConnection
 import ssl
 
-
 # Allow nested asyncio event loops
 nest_asyncio.apply()
 

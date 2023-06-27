@@ -1,1 +1,0 @@
-ssh -N -L 8182:database-1-instance-1.cqdcyvdldqyh.us-east-1.neptune.amazonaws.com:8182 -i "NeptuneAccessKeyPair.pem" ec2-user@18.207.149.107
