@@ -1,6 +1,7 @@
 import nest_asyncio
 import asyncio
 from gremlin_python.structure.graph import Graph
+from gremlin_python.process.graph_traversal import __
 from gremlin_python.driver.driver_remote_connection import DriverRemoteConnection
 import sys
 import ssl
@@ -30,30 +31,38 @@ g = graph.traversal().withRemote(connection)
 
 async def run_pagerank(max_iterations=1):
     try:
-        vertices = g.V().toList()
+        vertices = g.V().not_(__.has('type', 'influencer')).toList()
     except Exception as e:
         print(f"Failed to fetch vertices from Neptune: {e}")
         return
 
+    print(f"DEBUG: Found {len(vertices)} vertices to calculate influence score for.")
+
     # For each iteration
     for _ in range(max_iterations):
+        count = 0
         # Calculate the new rank for each vertex
         for vertex in vertices:
             try:
-                print(f"DEBUG: Updating rank for vertex {vertex}")
-                if not g.V(vertex).has('type', 'influencer').hasNext():
-                    inbound_vertices = g.V(vertex).in_().toList()
-                    rank_sum = 0
-                    for inbound_vertex in inbound_vertices:
-                        outbound_count = g.V(inbound_vertex).out().count().next()
-                        rank_sum += g.V(inbound_vertex).values('influence_score').to_list()[0] / outbound_count
-                    g.V(vertex).properties('influence_score').drop().iterate()
-                    g.V(vertex).property('influence_score', rank_sum).next()
+                inbound_vertices = g.V(vertex).in_().toList()
+                rank_sum = 0
+                for inbound_vertex in inbound_vertices:
+                    outbound_count = g.V(inbound_vertex).out().count().next()
+                    # It is impossible for outbound_count to be 0
+                    rank_sum += g.V(inbound_vertex).values('influence_score').to_list()[0] / outbound_count
+                print(f"DEBUG: Updating rank for vertex {g.V(vertex).values('id').next()}. New rank: {rank_sum}")
+                count += 1
+                g.V(vertex).properties('influence_score').drop().iterate()
+                g.V(vertex).property('influence_score', rank_sum).next()
             except Exception as e:
                 print(f"Failed to update rank for vertex {vertex}: {e}")
 
         # Wait a bit for Neptune to finish processing all the updates from this iteration
         await asyncio.sleep(3)
+
+        print(f"DEBUG: Updated rank for {count} vertices.")
+
+
 
 asyncio.run(run_pagerank())
 

@@ -1,8 +1,7 @@
 import requests
-import json
 
 def oauth(r):
-    r.headers["Authorization"] = 'Bearer ' + 'AAAAAAAAAAAAAAAAAAAAAK8OcgEAAAAA3hyo5bMXwffQ5nTRG2pCb3EE3ik%3DowcUocYmGFx0q4KjJLq8sXjzYkfsBU21Xx4dHlkpfq2Fzqxwke'
+    r.headers["Authorization"] = 'Bearer ' + 'AAAAAAAAAAAAAAAAAAAAAK8OcgEAAAAANxL2pfyl2jApzpOCiNfcysnK%2BPE%3DkcbTF6AjV1oKPcPA4NAfM650YVJD0bHCS2wYp12WcC3VmYSFRC'
     return r
 
 def get_following(user_id):
@@ -24,7 +23,7 @@ def get_following(user_id):
     return all_followings
 
 def main():
-    user_id = '4646461997' 
+    user_id = '4646461997'
     json_response = get_following(user_id)
     data = json_response
     print(data)

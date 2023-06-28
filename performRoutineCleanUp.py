@@ -29,14 +29,19 @@ graph = Graph()
 g = graph.traversal().withRemote(connection)
 
 async def run_cleanup():
+    count = 0
     try:
-        vertices = g.V().toList()
+        vertices = g.V().has('type', 'account').toList()
+        print(f"DEBUG: Found {len(vertices)} vertices to clean up.")
         avg = g.V().values('influence_score').mean().next()
 
         for vertex in vertices:
-            if g.V(vertex).has('type', 'account').hasNext() and\
-            g.V(vertex).values('influence_score').toList()[0] < avg:
-                g.V(vertex).drop().iterate().next()  # irrelevant
+            if g.V(vertex).values('influence_score').toList()[0] < avg:
+                count += 1
+                print(f"DEBUG: Deleting vertex with account id {g.V(vertex).values('id').toList()[0]}.")
+                g.V(vertex).drop().iterate().next()  # remove irrelevant account
+
+        print(f"DEBUG: Deleted {count} vertices.")
 
     except Exception as e:
         print(f"An error occurred while cleaning up the graph: {e}")

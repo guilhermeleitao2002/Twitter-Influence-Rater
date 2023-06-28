@@ -4,7 +4,6 @@ import time
 import asyncio
 import psycopg2
 import psycopg2.pool
-import json
 import sys
 from gremlin_python.structure.graph import Graph
 from gremlin_python.driver.driver_remote_connection import DriverRemoteConnection
@@ -68,12 +67,20 @@ async def get_following(user_id, pageTok):
     if pageTok is not None:
         params['pagination_token'] = pageTok
     all_followings = []
+    count = 0
 
     async with httpx.AsyncClient() as client:
         while True:
             try:
-                response = client.get(url, params=params, auth=oauth)
+                response = await client.get(url, params=params, auth=oauth)
+                count += 1
                 if response.status_code != 200:
+
+                    if params.get('pagination_token') is not None:
+                        # Update the last processed following
+                        with open('progress.txt', 'w') as f:
+                            f.write(f"{user_id}\n{params['pagination_token']}")
+
                     if response.status_code == 429:
                         reset_time = float(response.headers.get('X-RateLimit-Reset', 0))
                         remaining = int(response.headers.get('X-RateLimit-Remaining', 0))
@@ -83,14 +90,15 @@ async def get_following(user_id, pageTok):
                         current_time = time.time()
                         if remaining == 0:
                             print("Daily limit cap hit.")
-                            return (all_followings, True, data['meta']['next_token'])
+                            return (all_followings, True)
 
                         print("Rate limit hit. Waiting and then retrying.")
                         sleep_time = max(0, reset_time - current_time)
                         await asyncio.sleep(sleep_time)
                         continue
                     # Some other error occurred
-                    return (all_followings, True, data['meta']['next_token'])
+                    print(f"An error occurred: {response.status_code}\n{response.text}")
+                    return (all_followings, True)
 
                 data = response.json()
                 all_followings.extend(data['data'])
@@ -106,7 +114,10 @@ async def get_following(user_id, pageTok):
                     await asyncio.sleep(sleep_time)
             except Exception as e:
                 print(f"An error occurred: {e}")
-    return (all_followings, False, None)
+
+    print(f"DEBUG: {count} pages of following data retrieved.")
+    print(f"DEBUG: Calls remaining: {response.headers.get('X-RateLimit-Remaining', 0)}")
+    return (all_followings, False)
 
 async def is_collection_of_interest(following_id):
     with get_conn_from_pool() as conn:
@@ -147,18 +158,23 @@ async def updateAccounts():
 
     start_processing = last_influencer_processed is None  # start processing from the beginning if no progress file found
 
+    count_new, count_updated, count_new_collections = 0, 0, 0
+
     for influencer in influencers:
-        influencer_id = influencer.values('id').next()
+        influencer_id = g.V(influencer).values('id').next()
 
         # Skip influencers processed in previous runs
         if influencer_id == last_influencer_processed:
             start_processing = True  # start processing from this influencer
         if not start_processing:
             continue
+        
+        print(f"\t DEBUG: Processing influencer {g.V(influencer).values('username').next()}")
 
         # Get the influencer's following from Twitter API
-        following_data, apiBurnout, pagToken = await get_following(influencer_id, last_following_processed_page_token)
+        following_data, apiBurnout = await get_following(influencer_id, last_following_processed_page_token)
 
+        print(f"\t DEBUG: Going to process {len(following_data)} followings.")
         for following in following_data:
             following_id = following['id']
             following_username = following['username']
@@ -194,6 +210,8 @@ async def updateAccounts():
                 if g.V().has('id', following_id).values('type').next() != 'influencer':
                     g.V(following_id).properties('type').drop().iterate()
                     g.V(following_id).property('type', vertex_type).iterate()
+
+                count_updated += 1
             else:
                 # If the following is not in the graph, add it with its properties and set the edge                
                 g.addV('twitter_account')\
@@ -206,9 +224,9 @@ async def updateAccounts():
                  .property('type', vertex_type).as_('a')\
                  .V(influencer_id).addE('follows').to('a').iterate()
 
-            # Update the last processed following
-            with open('progress.txt', 'w') as f:
-                f.write(f"{influencer_id}\n{pagToken}")
+                count_new += 1
+                if vertex_type == 'collection':
+                    count_new_collections += 1
         
         # Wait 3 seconds before the next influencer
         # Note: This is to help neptune ingest the data
@@ -222,6 +240,14 @@ async def updateAccounts():
         # Update the last processed influencer and reset the last processed following to none
         with open('progress.txt', 'w') as f:
             f.write(f"{influencer_id}\n")
+
+        # Just for debugging
+        break
+
+    print(f"DEGUB: Inserted {count_new} new accounts.")
+    print(f"DEGUB: Updated {count_updated} existing accounts.")
+    print(f"DEGUB: Inserted {count_new_collections} new collections.")
+    print(f"DEGUB: Total number of collections: {g.V().has('type', 'collection').count().next()}.")
 
 # asyncio.run is the main entry point for asyncio programs and is used to run the top-level coroutine and creates a new event loop
 asyncio.run(updateAccounts())
